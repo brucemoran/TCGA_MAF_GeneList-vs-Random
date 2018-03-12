@@ -4,7 +4,7 @@ Test Frequency of SNVs in Gene Lists versus Random Gene Sets for Increased Mutat
 ## How-to
 Download the open-access TCGA MAFs for your preferred variant caller (MuTect2) from [GDC portal](https://portal.gdc.cancer.gov/repository?filters=%7B%22op%22%3A%22and%22%2C%22content%22%3A%5B%7B%22op%22%3A%22in%22%2C%22content%22%3A%7B%22field%22%3A%22files.access%22%2C%22value%22%3A%5B%22open%22%5D%7D%7D%2C%7B%22op%22%3A%22in%22%2C%22content%22%3A%7B%22field%22%3A%22files.experimental_strategy%22%2C%22value%22%3A%5B%22WXS%22%5D%7D%7D%5D%7D) and save into 'data' directory
 
-The data for multiple projects (disease types) should be in a single file, and the test data included should be removed. 
+The data for multiple projects (disease types) should be downloaded in a single file using the cart, and the test data included in data directory should be deleted as only one gdc*gz file can be extant. 
 
 Run from base project directory:
 ```
