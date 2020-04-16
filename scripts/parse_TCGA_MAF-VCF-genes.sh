@@ -1,7 +1,8 @@
 #! /bin/bash
 
 ##inputs
-REFBASE=$1
+BASEDIR=$(pwd $0)
+FASTA=$1
 GATK4=$2
 PICARDTOOLS=$3
 RLIBPATH=$4
@@ -13,16 +14,14 @@ curl "https://raw.githubusercontent.com/mskcc/vcf2maf/master/maf2vcf.pl" > "scri
 
 GENELISTS=$(ls data/geneLists/*.txt | perl -ane 'chomp;print "$_ "' | perl -ane '$sc=scalar(@F);for($i=0;$i<@F;$i++){$j=$i+1;if($j==$sc){print "$F[0]\n"}else{print $F[0] . ",";}}')
 
-if [[ ! -e $REFBASE ]];then
-  echo $REFBASE" not found, exiting"
+if [[ ! -e $FASTA ]];then
+  echo $FASTA" not found, exiting"
   exit 127
 fi
-REF=$(echo $REFBASE | sed 's/fa/chr1-22-MT-X-Y.fa/')
+REF=$(echo $FASTA | sed 's/{.fa,.fasta}/chr1-22-MT-X-Y.fa/')
 if [[ ! -e $REF ]];then
   echo "Making REF file (chr1-22, chrMT, chrX, chrY)"
-  $SAMTOOLS faidx $REFBASE chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 \
-    chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrMT chrX chrY > \
-    $REF
+  $SAMTOOLS faidx $FASTA chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrMT chrX chrY > $REF
   $SAMTOOLS faidx $REF
   $SAMTOOLS dict $REF > $REF.dict
   DICT=$(echo $REF | sed 's/fa/dict/')
@@ -77,9 +76,11 @@ for DIR in $(ls $GDC); do
       #R run
       Rscript --vanilla scripts/GRanges_geneLists_test.R \
         $RLIBPATH \
+        $BASEDIR \
         data/$NAME \
-        $GENELISTS
+        results/$NAME \
+        data/geneLists \
+        run
     fi
-
   fi
 done

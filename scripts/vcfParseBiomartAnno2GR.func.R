@@ -15,31 +15,24 @@ strSplitVec <- function(inVec,sepn){
 ##function to annotate GRanges from biomaRt
 biomartAnno <- function(grIn=NULL, GRCh=NULL, version=NULL, chr=""){
   print("Reading BiomaRt data...")
-  annoMart <- useEnsembl(biomart="ensembl",
-                                   GRCh=GRCh,
-                                   version=version,
-                                   dataset="hsapiens_gene_ensembl")
-
-  annoGenenameEnsEnt <- as_tibble(getBM(attributes=c('chromosome_name',
-                                           'start_position',
-                                           'end_position',
-                                           'strand',
-                                           'external_gene_name',
-                                           'ensembl_gene_id',
-                                           'entrezgene'),
-                              mart = annoMart))
+  annoMart <- useMart(biomart="ensembl",
+                      dataset="hsapiens_gene_ensembl",
+                      host="www.ensembl.org")
+  atts <-  c('chromosome_name','start_position','end_position','strand','external_gene_name','ensembl_gene_id','entrezgene_id')
+  annoGenenameEnsEnt <- as_tibble(getBM(attributes=atts,
+                  mart = annoMart))
   colnames(annoGenenameEnsEnt) <- c("seqnames",
                                     "start",
                                     "end",
                                     "strand",
                                     "external_gene_name",
                                     "ensembl_gene_id",
-                                    "entrezgene")
+                                    "entrezgene_id")
 
   annoGenenameEnsEnt %<>% dplyr::mutate(strand = unlist(lapply(strand, function(f){
-                                                            if(f == 1){return("+")}
-                                                            if(f == -1){return("-")}}
-                                                          )))
+                          if(f == 1){return("+")}
+                          if(f == -1){return("-")}}
+                        )))
   annoGenenameEnsEnt$seqnames <- paste0(chr, annoGenenameEnsEnt$seqnames)
 
   grangesOut <- unique(GRanges(seqnames = annoGenenameEnsEnt$seqnames,
@@ -48,7 +41,7 @@ biomartAnno <- function(grIn=NULL, GRCh=NULL, version=NULL, chr=""){
                        strand = annoGenenameEnsEnt$strand,
                        external_gene_name = annoGenenameEnsEnt$external_gene_name,
                        ensembl_gene_id = annoGenenameEnsEnt$ensembl_gene_id,
-                       entrezgene = annoGenenameEnsEnt$entrezgene))
+                       entrezgene_id = annoGenenameEnsEnt$entrezgene_id))
 
   if(is.null(grIn)){
       return(grangesOut)
