@@ -1,4 +1,24 @@
-#! /bin/bash
+#!/usr/bin/env nextflow
+
+params.help = ""
+
+if (params.help) {
+  log.info ''
+  log.info '-------------------------------------------------------'
+  log.info 'NEXTFLOW 19.10 IMPLEMENT TCGA_MAF_Genelist-vs-Bootstrap'
+  log.info '-------------------------------------------------------'
+  log.info ''
+  log.info 'Usage: '
+  log.info 'nextflow run main.nf'
+  log.info ''
+  log.info 'Mandatory arguments:'
+  log.info '    -profile    Configuration profile (required: standard,singularity)'
+  log.info '    --fastaHttp       STRING      link for download of preferred genome'
+  log.info '    --genelists      STRING      path to set of .txt genelists; TSV format, two columns headed: Entrez_Gene_ID,	Gene_Name'
+  log.info ''
+  exit 1
+}
+
 
 ##inputs
 BASEDIR=$(pwd $0)
@@ -9,24 +29,36 @@ RLIBPATH=$4
 SAMTOOLS=$5
 DRYRUN=$6
 
-##get vcf2maf
-curl "https://raw.githubusercontent.com/mskcc/vcf2maf/master/maf2vcf.pl" > "scripts/maf2vcf.pl"
+process vcf2maf_fa{
 
+  output:
+  file('fasta.fa') into fasta
+
+  script:
+  """
+  wget -O fasta.fa ${params.fastaLink}
+  wget -O maf2vcf.pl https://raw.githubusercontent.com/mskcc/vcf2maf/master/maf2vcf.pl
+  """
+}
+
+process prep_fa {
+
+  input:
+  file(fa) from fasta
+
+  output:
+  tuple file('chr1-22-MT-X-Y.fa'), file('chr1-22-MT-X-Y.fa.fai'), file('chr1-22-MT-X-Y.fa.dict') into faidict
+  
+  script:
+  """
+  ##Making REF file (chr1-22, chrMT, chrX, chrY)"
+  samtools faidx $fa chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrMT chrX chrY > chr1-22-MT-X-Y.fa
+  samtools faidx chr1-22-MT-X-Y.fa
+  samtools dict chr1-22-MT-X-Y.fa > chr1-22-MT-X-Y.fa.dict
+  """
+}
 GENELISTS=$(ls data/geneLists/*.txt | perl -ane 'chomp;print "$_ "' | perl -ane '$sc=scalar(@F);for($i=0;$i<@F;$i++){$j=$i+1;if($j==$sc){print "$F[0]\n"}else{print $F[0] . ",";}}')
 
-if [[ ! -e $FASTA ]];then
-  echo $FASTA" not found, exiting"
-  exit 127
-fi
-REF=$(echo $FASTA | sed 's/{.fa,.fasta}/chr1-22-MT-X-Y.fa/')
-if [[ ! -e $REF ]];then
-  echo "Making REF file (chr1-22, chrMT, chrX, chrY)"
-  $SAMTOOLS faidx $FASTA chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrMT chrX chrY > $REF
-  $SAMTOOLS faidx $REF
-  $SAMTOOLS dict $REF > $REF.dict
-  DICT=$(echo $REF | sed 's/fa/dict/')
-  ln -s $REF.dict $DICT
-fi
 
 REFD=$REF".dict"
 GDC=$(ls data/gdc*gz | sed 's/\.tar.gz//')
@@ -83,8 +115,7 @@ for DIR in $(ls $GDC); do
         run
       Rscript --vanilla scripts/protein_domain_mutations.R \
         results/$NAME/${NAME}.somatic.tumour.vcf.glVcfGrList.RData
-      Rscript --vanilla scripts/annotate_protein_domains.R \
-        results/$NAME/${NAME}.somatic.tumour.vcf.grPIDList.RData
+
     fi
   fi
 done

@@ -116,19 +116,57 @@ grPIDbootList <- lapply(seq_along(BOOTSTRAPLIST), function(b){
 })
 
 ##make ggridges plot
-names(grPIDbootList) <- names(BOOTSTRAPLIST)
-genePIDbootMlt <- do.call(rbind, lapply(seq_along(grPIDbootList), function(f){
-                if(!is.null(grPIDbootList[[f]][[1]][[1]])){
-                  data.frame(pg_var_per_width=grPIDbootList[[f]][[1]][[1]][,"pg_var_per_width"],
-                             bootlist=names(grPIDbootList)[f])
-}}))
+names(grPIDbootList) <- names(grPIDgeneList) <- names(BOOTSTRAPLIST)
+genePIDridgeList <- lapply(seq_along(grPIDbootList), function(f){
 
-pp <- ggplot(genePIDbootMlt,aes(x=log2(pg_var_per_width), y=bootlist, fill=bootlist)) +
-geom_density_ridges() +
-geom_vline(xintercept = log2(0.01), colour="red", linetype = "dashed") +
-ggtitle(VCFNAME) +
-guides(fill=FALSE)
-ggsave(pp, file=paste0(VCFIN,".genelists.geom_density-pvalue.nm.pdf"), dpi=1200)
+                    gl <- data.frame(pg_var_per_width=grPIDgeneList[[f]][[1]][,"pg_var_per_width"],
+                                 Geneset=names(grPIDbootList)[f],
+                                 Dataset="Genelist", stringsAsFactors=F)
+                    bl <- do.call(rbind, lapply(seq_along(grPIDbootList[[f]]), function(b){ data.frame(pg_var_per_width=grPIDbootList[[f]][[b]][[1]][,"pg_var_per_width"],
+                                 Geneset=names(grPIDbootList)[f],
+                                 Dataset=paste0("Bootlist_",b), stringsAsFactors=F)
+                    }))
+                    ##wilcox.test each bootstrap vs. genelist in turn
+                    pvalList <- unlist(lapply(unique(bl$Dataset), function(bf){
+                      wbl <- bl %>% dplyr::filter(Dataset %in% bf)
+                      wt <- wilcox.test(wbl$pg_var_per_width, gl$pg_var_per_width, correct=TRUE, exact=FALSE)
+                      wt$p.value
+                    }))
+                    bl$Dataset <- "Bootlist"
+                    tt <- table(pvalList>0.01)["FALSE"]
+                    return(list(rbind(gl, bl), unname((100-tt[1])/100), pvalList))
+})
+names(genePIDridgeList) <- names(grPIDbootList)
 
-names(grPIDPfamList) <- GENELISTNAMES
-save(grPIDPfamList, file=OUTPUTFILE)
+##summary of pvalues
+pval_summary <- tibble(Geneset = names(genePIDridgeList), Bootstrap_p = do.call(rbind, lapply(names(genePIDridgeList), function(f){
+  unlist(genePIDridgeList[[f]][[2]])
+}))) %>% dplyr::rename("Bootstrap_p" = 2)
+
+##construct full set
+genePIDridgeMlt <- as_tibble(do.call(rbind, lapply(genePIDridgeList, function(f){
+  f[[1]]
+}))) %>% dplyr::mutate(Dataset = fct_rev(as.factor(Dataset))) %>%
+         left_join()
+
+pp <- ggplot(genePIDridgeMlt,aes(x=log2(pg_var_per_width), y=Geneset)) +
+      geom_density_ridges(
+        aes(fill = paste(Geneset, Dataset)),
+        alpha = .6, color = "white"
+      ) +
+      scale_y_discrete(expand = c(0.01, 0)) +
+      scale_x_continuous(expand = c(-0.1, 0)) +
+      scale_fill_cyclical(
+        breaks = c("CIT Genelist", "CIT Bootlist"),
+        labels = c(`CIT Genelist` = "Genelist", `CIT Bootlist` = "Bootstrap"),
+        values = c("grey40", "forestgreen"),
+        name = "Dataset", guide = "legend"
+      ) +
+      geom_text(
+        data = pval_summary,
+        aes(y = Geneset, x = 3, label = paste0("p = ", Bootstrap_p)),
+        nudge_y = 0.08
+      )
+ggsave(pp, file=paste0(OUTPUTFILE, ".genelist-vs-bootstraps.geom_density_ridges.pdf"), dpi=1200)
+
+save(grPIDgeneList, grPIDbootList, genePIDridgeList,  file=OUTPUTFILE)
