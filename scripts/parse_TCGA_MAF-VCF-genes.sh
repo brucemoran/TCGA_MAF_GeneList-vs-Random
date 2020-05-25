@@ -81,6 +81,10 @@ for DIR in $(ls $GDC); do
         results/$NAME \
         data/geneLists \
         run
+      Rscript --vanilla scripts/protein_domain_mutations.R \
+        results/$NAME/${NAME}.somatic.tumour.vcf.glVcfGrList.RData
+      Rscript --vanilla scripts/annotate_protein_domains.R \
+        results/$NAME/${NAME}.somatic.tumour.vcf.grPIDList.RData
     fi
   fi
 done

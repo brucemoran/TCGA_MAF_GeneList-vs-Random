@@ -15,10 +15,10 @@ GENELISTSET <- paste(dir(pattern=".txt$", argsIn[5], full.names=TRUE), collapse=
 RUNTEST <- argsIn[6]
 
 if(length(argsIn)<6){
-  RUNTEST <- "no"
+  RUNTEST <- "run"
 }
 .libPaths(RLIBPATH)
-dir.create(OUTDIR, showWarnings=FALSE)
+dir.create(OUTDIR, recursive=TRUE, showWarnings=FALSE)
 setwd(BASEDIR)
 source("scripts/vcfParseBiomartAnno2GR.func.R")
 
@@ -41,6 +41,7 @@ genesFound <- kbVpgGlList <- glVcfGrList <- as.list(GENELISTNAMES)
 
 for (x in seq_along(GENELIST)){
   genelist <- suppressMessages(read_tsv(GENELIST[x]))
+  print(genelist)
 
   ##grep out positions supporting gene_name
   ##NB these need to be comma'd, and regexed to allow overlap with other genes
@@ -66,7 +67,9 @@ for (x in seq_along(GENELIST)){
   kbVpgGlList[[x]] <- vpgGl / (as.vector(annovpgGl$length)/1000)
 }
 
-names(glVcfGrList) <- GENELISTNAMES
+##add full VcfGr to list
+glVcfGrList[["fullVcfGr"]] <- vcfGr
+names(glVcfGrList) <- c(GENELISTNAMES, "fullVcfGr")
 
 ##save output
 assignName <- paste0(VCFNAME,".glVcfGrList")
@@ -76,7 +79,7 @@ save(list=assignName, file=paste0(saveFile))
 
 uniqGenes <- sort(unique(grep(",",vcfGr$external_gene_name, invert=TRUE, value=TRUE)))
 
-if(RUNTEST == "run"){
+#if(RUNTEST == "run"){
   genePVecList <- lapply(seq_along(GENELIST), function(x){
     print(paste0("Working on: ", GENELIST[x]))
 
@@ -115,14 +118,18 @@ if(RUNTEST == "run"){
     }
     close(pb)
     #pVec <- p.adjust(pVec,method="BH")
-    return(pVec)
+    return(list(pVec, glVcfGr100))
   })
-  names(genePVecList) <- paste(GENELISTNAMES,names(genesFound))
+  names(genePVecList) <- paste(GENELISTNAMES, names(genesFound))
 
   ##plot all pVec density to visualise which sets have more significant results
   ##first make melt DF of all pVecs and associated genelist
-  genePVecMlt <- melt(genePVecList)
-  colnames(genePVecMlt) <- c("p.value", "genelist")
+  genePVecMlt <- do.call(rbind, lapply(seq_along(genePVecList), function(f){
+                  if(!is.null(genePVecList[[f]][[1]])){
+                    data.frame(p.value=genePVecList[[f]][[1]],
+                               genelist=names(genePVecList)[f])
+                             }
+                           }))
   genePVecMlt$p.adj <- p.adjust(genePVecMlt$p.value, method="BH")
 
   ##ggplot
@@ -147,4 +154,4 @@ if(RUNTEST == "run"){
   assign(assignName,value=genePVecList)
   saveFile <- paste0(OUTDIR,"/",VCFNAME,".nmList.RData")
   save(list=assignName, file=paste0(saveFile))
-}
+#}
