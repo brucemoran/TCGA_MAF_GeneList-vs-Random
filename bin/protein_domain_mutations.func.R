@@ -38,6 +38,7 @@ EnsDb.Hsapiens.v86_func <- function(ANNOFILE){
     }
 
     ##gene_annotation
+    biomartCacheClear()
     annoMart <- useMart(biomart="ensembl",
                         dataset="hsapiens_gene_ensembl")
     annoGenenameEnsEnt <- as_tibble(getBM(attributes=c('ensembl_gene_id', 'external_gene_name'), mart = annoMart))
@@ -63,7 +64,7 @@ sqlvl_pid_gr_func <- function(gr, txs_pid){
 ##here this is tested
 ##multiple annotations sources per mutation exist
 ##need to check per source as may influence result
-per_gene_func <- function(gr_txs_pid_snvs){
+per_gene_func <- function(gr_txs_pid_snvs, s){
   if(length(gr_txs_pid_snvs)!=0){
   tb_tmp <- as_tibble(gr_txs_pid_snvs) %>%
             dplyr::mutate(variant = names(gr_txs_pid_snvs)) %>%
@@ -95,7 +96,7 @@ per_gene_func <- function(gr_txs_pid_snvs){
 }
 
 ##output per-gene and per-domain results
-per_gene_domain_func <- function(gg, OUTDIR=NULL, GENELISTNAMES, g){
+per_gene_domain_func <- function(gg, GENELISTNAMES, g){
   if(dim(gg)[1] > 0){
     per_gene <- gg %>%
                 distinct() %>%
@@ -118,13 +119,12 @@ per_gene_domain_func <- function(gg, OUTDIR=NULL, GENELISTNAMES, g){
                           left_join(., pfam_tib, by=c("protein_domain_id" = "pfam")) %>%
                           dplyr:::select(1, 2, 3, 4)
 
-    if(!is.null(OUTDIR)){
-      lapply(paste0(OUTDIR,c("/per_gene", "/per_domain")), function(d){
-        dir.create(d, showWarnings = F, recursive = T)
-      })
-      write_csv(per_gene, path=paste0(OUTDIR, "/per_gene/per_gene.", GENELISTNAMES[g], ".pfam.csv"))
-      write_csv(per_domain, path=paste0(OUTDIR, "/per_domain/per_domain.", GENELISTNAMES[g], ".pfam.csv"))
-    }
+
+    lapply(c("per_gene", "per_domain"), function(d){
+      dir.create(d, showWarnings = F, recursive = T)
+    })
+    write_csv(per_gene, path=paste0("per_gene/per_gene.", GENELISTNAMES[g], ".pfam.csv"))
+    write_csv(per_domain, path=paste0("per_domain/per_domain.", GENELISTNAMES[g], ".pfam.csv"))
 
     olist <- list(per_gene, per_domain)
     names(olist) <- c("per_gene", "per_domain")

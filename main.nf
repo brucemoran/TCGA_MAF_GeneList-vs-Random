@@ -12,110 +12,158 @@ if (params.help) {
   log.info 'nextflow run main.nf'
   log.info ''
   log.info 'Mandatory arguments:'
-  log.info '    -profile    Configuration profile (required: standard,singularity)'
-  log.info '    --fastaHttp       STRING      link for download of preferred genome'
-  log.info '    --genelists      STRING      path to set of .txt genelists; TSV format, two columns headed: Entrez_Gene_ID,	Gene_Name'
+  log.info '    -profile    Configuration profile (required: standard,conda)'
+  log.info '    --faPath      STRING      path to bgzip\'d fasta, hg38 from VEP seems to work fine'
+  log.info '    --geneLists      STRING      path to set of .txt genelists; TSV format, two columns headed: Entrez_Gene_ID,	Gene_Name'
   log.info ''
   exit 1
 }
 
-
-##inputs
-BASEDIR=$(pwd $0)
-FASTA=$1
-GATK4=$2
-PICARDTOOLS=$3
-RLIBPATH=$4
-SAMTOOLS=$5
-DRYRUN=$6
-
-process vcf2maf_fa{
-
-  output:
-  file('fasta.fa') into fasta
-
-  script:
-  """
-  wget -O fasta.fa ${params.fastaLink}
-  wget -O maf2vcf.pl https://raw.githubusercontent.com/mskcc/vcf2maf/master/maf2vcf.pl
-  """
-}
+fasta = Channel.fromPath("$params.faPath")
 
 process prep_fa {
+  label 'low_mem'
 
   input:
   file(fa) from fasta
 
   output:
-  tuple file('chr1-22-MT-X-Y.fa'), file('chr1-22-MT-X-Y.fa.fai'), file('chr1-22-MT-X-Y.fa.dict') into faidict
-  
+  tuple file('chr1-22-X-Y.fa.gz'), file('chr1-22-X-Y.fa.gz.fai'), file('chr1-22-X-Y.dict') into faidict
+
   script:
   """
-  ##Making REF file (chr1-22, chrMT, chrX, chrY)"
-  samtools faidx $fa chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrMT chrX chrY > chr1-22-MT-X-Y.fa
-  samtools faidx chr1-22-MT-X-Y.fa
-  samtools dict chr1-22-MT-X-Y.fa > chr1-22-MT-X-Y.fa.dict
+  ##Making REF file (chr1-22, chrMT, chrX, chrY)
+  CHRTEST=\$(gunzip -c $fa | head -n1)
+  if [[ ! \$CHRTEST =~ "^>chr" ]];then
+    samtools faidx $fa 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y | sed 's/>/>chr/g' > chr1-22-X-Y.fa
+  else
+    samtools faidx $fa chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY > chr1-22-X-Y.fa
+  fi
+
+  bgzip chr1-22-X-Y.fa
+  samtools faidx chr1-22-X-Y.fa.gz
+  samtools dict chr1-22-X-Y.fa.gz > chr1-22-X-Y.dict
   """
 }
-GENELISTS=$(ls data/geneLists/*.txt | perl -ane 'chomp;print "$_ "' | perl -ane '$sc=scalar(@F);for($i=0;$i<@F;$i++){$j=$i+1;if($j==$sc){print "$F[0]\n"}else{print $F[0] . ",";}}')
 
+//Java task memory allocation via task.memory
+javaTaskmem = { it.replace(" GB", "g") }
 
-REFD=$REF".dict"
-GDC=$(ls data/gdc*gz | sed 's/\.tar.gz//')
-if [[ -d $GDC ]];then rm -rf $GDC;fi
+process dl_maf {
+  label 'low_mem'
 
-##open all data into dirs, renaming by TCGA_XYZ disease types
-echo "Untar GDC data"
-mkdir $GDC
-tar -C $GDC -xf $GDC".tar.gz"
-rm $GDC"/MANIFEST.txt"
+  output:
+  file("GDCdata/**/*maf.gz") into mafs
 
-for DIR in $(ls $GDC); do
+  script:
+  """
+  Rscript --vanilla ${workflow.projectDir}/bin/TCGAbiolinks.maf_dl.R
+  """
+}
 
-  FILEGZ=$GDC/$DIR/*gz;
-  FILEMAF=$(echo $FILEGZ | sed 's/\.gz//');
-  NAME=$(ls $FILEGZ | perl -ane '@s=split(/\//);@s1=split(/\./,$s[-1]);print "$s1[0].$s1[1].$s1[2]\n";');
+mafs
+    .flatten()
+    .set { flat_mafs }
 
-  if [[ $NAME =~ "TCGA" ]]; then
-    if [[ -d data/$NAME ]]; then
-      echo "data/$NAME extant, please remove to rerun"
-      exit 127
-    fi
-    echo "Working on: "$NAME;
-    mkdir data/$NAME;
-    gunzip $FILEGZ
-    mv $FILEMAF data/$NAME/$NAME".somatic.maf";
-    perl scripts/maf2vcf.pl \
-      --input-maf data/$NAME/$NAME".somatic.maf" \
-      --output-dir data/$NAME \
-      --ref-fasta $REF
+process prep_maf {
+  label 'med_mem'
+  publishDir "analysis/$tcga/maf", mode: "copy"
 
-    java -jar $PICARDTOOLS SortVcf \
-      I=data/$NAME/$NAME".somatic.vcf" \
-      O=data/$NAME/$NAME".somatic.sort.vcf" \
-      SD=$REFD
+  input:
+  each file(maf) from flat_mafs
+  tuple file(fa), file(fai), file(dict) from faidict
 
-    tail -n +2 data/$NAME/$NAME".somatic.pairs.tsv" | \
-      cut -f 1 > data/$NAME/$NAME".somatic.tumour.args"
+  output:
+  tuple val(tcga), file("${tcga}.mutect2.somatic.vcf") into genelistR
 
-    $GATK4 SelectVariants \
-      -R $REF \
-      -V data/$NAME/$NAME".somatic.sort.vcf" \
-      -O data/$NAME/$NAME".somatic.tumour.vcf" \
-      -sn data/$NAME/$NAME".somatic.tumour.args"
+  script:
+  taskmem = javaTaskmem("${task.memory}")
+  tcga = "${maf}".split("\\.mutect")[0].replaceAll("\\.", "-")
+  """
+  gunzip -c $maf > $tcga".mutect2.maf"
+  maf2vcf.pl \
+    --input-maf $tcga".mutect2.maf" \
+    --output-dir $tcga \
+    --ref-fasta $fa
 
-    if [[ $DRYRUN != "" ]]; then
-      #R run
-      Rscript --vanilla scripts/GRanges_geneLists_test.R \
-        $RLIBPATH \
-        $BASEDIR \
-        data/$NAME \
-        results/$NAME \
-        data/geneLists \
-        run
-      Rscript --vanilla scripts/protein_domain_mutations.R \
-        results/$NAME/${NAME}.somatic.tumour.vcf.glVcfGrList.RData
+  picard SortVcf -Xmx$taskmem \
+    I=./$tcga/$tcga".mutect2.vcf" \
+    O=$tcga".mutect2.sort.vcf" \
+    SD=$dict
 
-    fi
-  fi
-done
+  tail -n +2 $tcga/$tcga".mutect2.pairs.tsv" | \
+    cut -f 1 > $tcga".mutect2.somatic.args"
+
+  gatk SelectVariants \
+    -R $fa \
+    -V $tcga".mutect2.sort.vcf" \
+    -O $tcga".mutect2.somatic.vcf" \
+    -sn $tcga".mutect2.somatic.args"
+  """
+}
+
+process run_Rs {
+  label 'low_mem'
+  publishDir "analysis/$tcga/", mode: "copy"
+  maxForks 1
+  //issue with biomart and multiple access
+
+  input:
+  tuple val(tcga), file(vcf) from genelistR
+
+  output:
+  file('*') into completed
+  tuple val(tcga), file("results"), file("bootstraps") into results
+
+  script:
+  """
+  Rscript --vanilla ${workflow.projectDir}/bin/GRanges_geneLists_test.call.R \
+    ${workflow.projectDir}/bin/GRanges_geneLists_test.func.R \
+    $tcga \
+    $vcf \
+    ${params.geneLists}
+
+  Rscript --vanilla ${workflow.projectDir}/bin/protein_domain_mutations.call.R \
+    ${workflow.projectDir}/bin/protein_domain_mutations.func.R \
+    $tcga".glVcfGrList.RData" \
+    ${params.geneLists}
+
+  chmod a+x ./results/*
+  chmod a+x ./bootstraps/*
+  """
+}
+
+process pack_out {
+  label 'low_mem'
+  publishDir "analysis/$tcga/", mode: "copy"
+
+  input:
+  tuple val(tcga), file(results), file(bootstraps) from results
+
+  output:
+  file('*') into resulted
+
+  script:
+  """
+  wget -O textToExcelXLSX.pl https://raw.githubusercontent.com/brucemoran/perl/master/XLSX/textToExcelXLSX.pl
+
+  ##write XLSX fro SNV data
+  RESTXT=\$(ls results/*txt)
+  perl ./textToExcelXLSX.pl \
+    \$RESTXT \
+    $tcga".mutect2.genelists.SNV"
+
+  ##write genelist data
+  GLTYPE=\$(ls bootstraps | grep -v p_ | grep -v xlsx | \
+    perl -ane 'chomp;@s=split(/\\mutect\\./); \$so=\$s[-1]; \$so=~s/\\_[0-9]*.txt\$//; print "\$so\\n";' | sort | uniq)
+
+  for GL in \$GLTYPE; do
+    GLTYPEALL=\$(ls bootstraps/\$GL*.txt)
+    perl ./textToExcelXLSX.pl \
+      \$GLTYPEALL \
+      $tcga"."\$GL".bootstraps.SNV"
+  done
+
+  zip -r $tcga".mutect2.results.zip" *xlsx *padjBH.nm.pdf
+  """
+}

@@ -15,12 +15,13 @@ strSplitVec <- function(inVec,sepn){
 ##function to annotate GRanges from biomaRt
 biomartAnno <- function(grIn=NULL, GRCh=NULL, version=NULL, chr=""){
   print("Reading BiomaRt data...")
+  biomartCacheClear()
   annoMart <- useMart(biomart="ensembl",
                       dataset="hsapiens_gene_ensembl",
                       host="www.ensembl.org")
   atts <-  c('chromosome_name','start_position','end_position','strand','external_gene_name','ensembl_gene_id','entrezgene_id')
-  annoGenenameEnsEnt <- as_tibble(getBM(attributes=atts,
-                  mart = annoMart))
+  annoGenenameEnsEnt <- getBM(attributes=atts, mart = annoMart)
+  annoGenenameEnsEnt <- as_tibble(annoGenenameEnsEnt)
   colnames(annoGenenameEnsEnt) <- c("seqnames",
                                     "start",
                                     "end",
@@ -31,8 +32,8 @@ biomartAnno <- function(grIn=NULL, GRCh=NULL, version=NULL, chr=""){
 
   annoGenenameEnsEnt %<>% dplyr::mutate(strand = unlist(lapply(strand, function(f){
                           if(f == 1){return("+")}
-                          if(f == -1){return("-")}}
-                        )))
+                          if(f == -1){return("-")}
+                        })))
   annoGenenameEnsEnt$seqnames <- paste0(chr, annoGenenameEnsEnt$seqnames)
 
   grangesOut <- unique(GRanges(seqnames = annoGenenameEnsEnt$seqnames,
@@ -66,7 +67,9 @@ vcfParseAnnoGR <- function(vcfIn){
   if(length(grep("chr",chrTest))==0){
     chrTest <- ""
   }
+
   ##annotate with biomart
+  biomartCacheClear()
   biomartAll <- biomartAnno(chr=chrTest)
   fol <- as_tibble(as.data.frame(findOverlaps(grVcf, biomartAll)))
 
@@ -99,7 +102,7 @@ vcfParseAnnoGR <- function(vcfIn){
 ##return vector of mutations per annotated genes
 variantsPerGene <- function(vcfIn, geneVecIn, rownameTag){
 
-  extGeneCol <- grep("external_gene",colnames(values(vcfIn)))
+  extGeneCol <- grep("external_gene_name",colnames(values(vcfIn)))
   rowTagCols <- grep(rownameTag,colnames(values(vcfIn)))
   genoVcf <- vcfIn[,c(extGeneCol, rowTagCols)]
   ugeneVec <- unique(genoVcf$external_gene_name)
