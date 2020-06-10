@@ -16,18 +16,20 @@ GLDF <- t(as.data.frame(strSplitVec(GENELIST,"/")))
 GENELISTNAMES <- strSplitVec(GLDF[,ncol(GLDF)],"\\.")[1,]
 VCFNAME <- rev(strSplitVec(VCFIN, "/"))[1]
 
+##annotations
+load("biomaRt_all.extensent.RData")
+load("EnsDb.Hsapiens.v86.txs.PFAM.db.RData")
+
 ##output dirs
-dir.create("bootstraps", showWarnings=FALSE)
 dir.create("results", showWarnings=FALSE)
+dir.create("bootstraps", showWarnings=FALSE)
 
 ##parse, annotate VCF into Grange
-vcfGr <- vcfParseAnnoGR(VCFIN)
+vcfGrBiomartAllList <- vcfParseAnnoGR(VCFIN, biomartAll)
+vcfGr <- vcfGrBiomartAllList[[1]]
+biomartAll <- vcfGrBiomartAllList[[2]]
 extEnt <- tibble(entrezgene_id = unlist(strSplitVec(vcfGr$entrezgene_id, ",")),
                  external_gene_name = unlist(strSplitVec(vcfGr$external_gene_name, ",")))
-annoMart <- useMart(biomart="ensembl",
-                    dataset="hsapiens_gene_ensembl",
-                    host="www.ensembl.org")
-annoGenenameEnsEnt <- as_tibble(getBM(attributes=c('chromosome_name', 'start_position', 'end_position', 'strand', 'external_gene_name', 'ensembl_gene_id', 'entrezgene_id'), mart = annoMart))
 
 ##parse out geneLists
 genesFound <- kbVpgGlList <- glVcfGrList <- as.list(GENELISTNAMES)
@@ -55,10 +57,10 @@ for (x in seq_along(GENELIST)){
   names(genesFound)[x] <- paste0(length(vpgGl), "/", length(genelist$Gene_Name))
 
   ##adjust to gene sizes
-  annovpgGl <- annoGenenameEnsEnt %>%
+  annovpgGl <- as_tibble(biomartAll) %>%
                dplyr::filter(external_gene_name %in% names(vpgGl)) %>%
-               dplyr::filter(chromosome_name %in% c(1:22,"X","Y")) %>%
-               dplyr::mutate(length = end_position - start_position) %>%
+               dplyr::filter(seqnames %in% paste0("chr",c(1:22,"X","Y"))) %>%
+               dplyr::mutate(length = end - start) %>%
                group_by(external_gene_name) %>%
                dplyr::slice(which.max(length)) %>%
                arrange(external_gene_name)
@@ -85,8 +87,8 @@ assign(assignName,value=glVcfGrList)
 saveFile <- paste0(TCGAID,".glVcfGrList.RData")
 save(list=assignName, file=paste0(saveFile))
 
-uniqGenes <- sort(unique(grep(",",vcfGr$external_gene_name, invert=TRUE, value=TRUE)))
 
+uniqGenes <- sort(unique(grep(",",vcfGr$external_gene_name, invert=TRUE, value=TRUE)))
 genePVecList <- lapply(seq_along(GENELIST), function(x){
   print(paste0("Working on: ", GENELIST[x]))
 
@@ -115,10 +117,10 @@ genePVecList <- lapply(seq_along(GENELIST), function(x){
     vpgGl100 <- vpgGl100[names(vpgGl100) %in% geneVec100]
 
     #per Kb
-    annovpgGl100 <- annoGenenameEnsEnt %>%
+    annovpgGl100 <- as_tibble(biomartAll) %>%
                     dplyr::filter(external_gene_name %in% names(vpgGl100)) %>%
-                    dplyr::filter(chromosome_name %in% c(1:22,"X","Y")) %>%
-                    dplyr::mutate(length = end_position - start_position) %>%
+                    dplyr::filter(seqnames %in% paste0("chr",c(1:22,"X","Y"))) %>%
+                    dplyr::mutate(length = end - start) %>%
                     group_by(external_gene_name) %>%
                     dplyr::slice(which.max(length)) %>%
                     arrange(external_gene_name)

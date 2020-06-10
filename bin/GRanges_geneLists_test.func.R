@@ -2,7 +2,7 @@
 
 ##read VCFs into Granges
 
-libs <- c("ensemblVEP", "customProDB", "tidyverse", "biomaRt", "magrittr", "reshape2", "ggridges")
+libs <- c("ensembldb", "EnsDb.Hsapiens.v86", "ensemblVEP", "customProDB", "tidyverse", "biomaRt", "magrittr", "reshape2", "ggridges", "PFAM.db")
 libsLoaded <- lapply(libs,function(l){suppressMessages(library(l, character.only = TRUE))})
 
 strSplitFun <- function(input,sepn){
@@ -13,70 +13,37 @@ strSplitVec <- function(inVec,sepn){
 }
 
 ##function to annotate GRanges from biomaRt
-biomartAnno <- function(grIn=NULL, GRCh=NULL, version=NULL, chr=""){
-  print("Reading BiomaRt data...")
-  biomartCacheClear()
-  annoMart <- useMart(biomart="ensembl",
-                      dataset="hsapiens_gene_ensembl",
-                      host="www.ensembl.org")
-  atts <-  c('chromosome_name','start_position','end_position','strand','external_gene_name','ensembl_gene_id','entrezgene_id')
-  annoGenenameEnsEnt <- getBM(attributes=atts, mart = annoMart)
-  annoGenenameEnsEnt <- as_tibble(annoGenenameEnsEnt)
-  colnames(annoGenenameEnsEnt) <- c("seqnames",
-                                    "start",
-                                    "end",
-                                    "strand",
-                                    "external_gene_name",
-                                    "ensembl_gene_id",
-                                    "entrezgene_id")
-
-  annoGenenameEnsEnt %<>% dplyr::mutate(strand = unlist(lapply(strand, function(f){
-                          if(f == 1){return("+")}
-                          if(f == -1){return("-")}
-                        })))
-  annoGenenameEnsEnt$seqnames <- paste0(chr, annoGenenameEnsEnt$seqnames)
-
-  grangesOut <- unique(GRanges(seqnames = annoGenenameEnsEnt$seqnames,
-                       ranges = IRanges(annoGenenameEnsEnt$start,
-                                        annoGenenameEnsEnt$end),
-                       strand = annoGenenameEnsEnt$strand,
-                       external_gene_name = annoGenenameEnsEnt$external_gene_name,
-                       ensembl_gene_id = annoGenenameEnsEnt$ensembl_gene_id,
-                       entrezgene_id = annoGenenameEnsEnt$entrezgene_id))
-
-  if(is.null(grIn)){
-      return(grangesOut)
-  }
-  if(!is.null(grIn)){
-      ##UNTESTED
-      grOut <- GenomicRanges::intersect(grangesOut, grIn)
-      return(grOut)
-  }
-}
-
-vcfParseAnnoGR <- function(vcfIn){
+vcfParseAnnoGR <- function(vcfIn, annoIn){
 
   ##read inputs
   print("Reading VCF input...")
   grVcf <- granges(readVcf(file=vcfIn))
   gr <- suppressWarnings(InputVcf(vcfIn))
-  chrTest <- levels(seqnames(gr[[1]]))[1]
-  if(length(grep("chr",chrTest))>0){
-    chrTest <- "chr"
+  chrTest <- length(grep("chr",levels(seqnames(gr[[1]]))[1]))>0
+
+  if(!class(annoIn)[1] == "GRanges"){
+    if(chrTest==TRUE){
+      annoIn$seqnames <- paste0("chr", annoIn$seqnames)
+    }
+    biomartAll <- GRanges(annoIn)
   }
-  if(length(grep("chr",chrTest))==0){
-    chrTest <- ""
+  if(class(annoIn)[1] == "GRanges"){
+    if(chrTest==TRUE){
+      annoin <- as_tibble(annoIn)
+      annoin$seqnames <- paste0("chr", annoin$seqnames)
+      biomartAll <- GRanges(annoin)
+    } else {
+      biomartAll <- annoIn
+    }
   }
 
-  ##annotate with biomart
-  biomartCacheClear()
-  biomartAll <- biomartAnno(chr=chrTest)
+  ##f(ind) o(ver)l(aps) with annotation
   fol <- as_tibble(as.data.frame(findOverlaps(grVcf, biomartAll)))
 
   print("Annotating...")
   grVcfAnno <- do.call(rbind, lapply(unique(fol$queryHits), function(ff){
     shits <- fol[fol$queryHits==ff,]$subjectHits
-     do.call(cbind,apply(as.data.frame(values(biomartAll[shits])),2,function(f){
+     do.call(cbind, apply(as.data.frame(values(biomartAll[shits])), 2, function(f){
        data.frame(paste(gsub(" ","",f),collapse=","))
      }))
    }
@@ -96,7 +63,7 @@ vcfParseAnnoGR <- function(vcfIn){
   })))
   names(grT) <- names(gr)
   values(grVcf) <- cbind(values(grVcf), grT)
-  return(grVcf)
+  return(list(grVcf, biomartAll))
 }
 
 ##return vector of mutations per annotated genes

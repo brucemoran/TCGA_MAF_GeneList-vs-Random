@@ -46,6 +46,19 @@ process prep_fa {
   """
 }
 
+process anno_R {
+  label 'low_mem'
+
+  output:
+  tuple file("biomaRt_all.extensent.RData"), file("EnsDb.Hsapiens.v86.txs.PFAM.db.RData") into anno_vcf
+
+  script:
+  """
+  Rscript --vanilla ${workflow.projectDir}/bin/annotations.call.R \
+    ${workflow.projectDir}/bin/annotations.func.R
+  """
+}
+
 //Java task memory allocation via task.memory
 javaTaskmem = { it.replace(" GB", "g") }
 
@@ -66,15 +79,14 @@ mafs
     .set { flat_mafs }
 
 process prep_maf {
-  label 'med_mem'
-  publishDir "analysis/$tcga/maf", mode: "copy"
+  label 'high_mem'
 
   input:
   each file(maf) from flat_mafs
   tuple file(fa), file(fai), file(dict) from faidict
 
   output:
-  tuple val(tcga), file("${tcga}.mutect2.somatic.vcf") into genelistR
+  tuple val(tcga), file("${tcga}.mutect2.somatic.vcf") into ( genelistR1, genelistR2 )
 
   script:
   taskmem = javaTaskmem("${task.memory}")
@@ -102,18 +114,17 @@ process prep_maf {
   """
 }
 
-process run_Rs {
-  label 'low_mem'
-  publishDir "analysis/$tcga/", mode: "copy"
-  maxForks 1
-  //issue with biomart and multiple access
+process prep_Rs {
+  label 'high_mem'
+  publishDir "analysis/$tcga/", mode: "copy", pattern: "!EnsDb.Hsapiens.v86.txs.PFAM.db.RData, !biomaRt_all.extensent.RData"
 
   input:
-  tuple val(tcga), file(vcf) from genelistR
+  tuple val(tcga), file(vcf) from genelistR1
+  file(vcf_rdata) from anno_vcf
 
   output:
-  file('*') into completed
-  tuple val(tcga), file("results"), file("bootstraps") into results
+  tuple val(tcga), file("${tcga}.glVcfGrList.RData"),  file("EnsDb.Hsapiens.v86.txs.PFAM.db.RData"), file('./results'), file("bootstraps") into prepd
+  tuple val(tcga), file("${tcga}.genelists.geom_density-padjBH.nm.pdf") into results_prep
 
   script:
   """
@@ -123,6 +134,30 @@ process run_Rs {
     $vcf \
     ${params.geneLists}
 
+  chmod a+x ./results/*
+  chmod a+x ./bootstraps/*
+  """
+}
+
+prepd
+    .join(genelistR2)
+    .groupTuple()
+    .map { it -> tuple(it[0], it[1..-1].flatten()).flatten() }
+    .set { prepdtup }
+
+process run_Rs {
+  label 'high_mem'
+  publishDir "analysis/$tcga/", mode: "copy", pattern: "!EnsDb.Hsapiens.v86.txs.PFAM.db.RData"
+
+  input:
+  tuple val(tcga), file(rdatagrv), file(rdataens), file(results), file(bootstraps), file(vcf) from prepdtup
+
+  output:
+  file('*') into completed
+  tuple val(tcga), file("results"), file("bootstraps") into results_run
+
+  script:
+  """
   Rscript --vanilla ${workflow.projectDir}/bin/protein_domain_mutations.call.R \
     ${workflow.projectDir}/bin/protein_domain_mutations.func.R \
     $tcga".glVcfGrList.RData" \
@@ -133,12 +168,18 @@ process run_Rs {
   """
 }
 
+results_run
+    .join(results_prep)
+    .groupTuple()
+    .map { it -> tuple(it[0], it[1..-1].flatten()).flatten() }
+    .set { results_pr }
+
 process pack_out {
   label 'low_mem'
-  publishDir "analysis/$tcga/", mode: "copy"
+  publishDir "analysis/$tcga/", mode: "copy", pattern: "*.zip"
 
   input:
-  tuple val(tcga), file(results), file(bootstraps) from results
+  tuple val(tcga), file(results), file(bootstraps), file(pdf) from results_pr
 
   output:
   file('*') into resulted
@@ -151,7 +192,7 @@ process pack_out {
   RESTXT=\$(ls results/*txt)
   perl ./textToExcelXLSX.pl \
     \$RESTXT \
-    $tcga".mutect2.genelists.SNV"
+    $tcga".mutect2.genelists"
 
   ##write genelist data
   GLTYPE=\$(ls bootstraps | grep -v p_ | grep -v xlsx | \
@@ -161,9 +202,9 @@ process pack_out {
     GLTYPEALL=\$(ls bootstraps/\$GL*.txt)
     perl ./textToExcelXLSX.pl \
       \$GLTYPEALL \
-      $tcga"."\$GL".bootstraps.SNV"
+      $tcga"."\$GL".bootstraps"
   done
 
-  zip -r $tcga".mutect2.results.zip" *xlsx *padjBH.nm.pdf
+  zip -r $tcga".mutect2.results.zip" *xlsx *padjBH.nm.pdf *.geom_density_ridges.pdf
   """
 }

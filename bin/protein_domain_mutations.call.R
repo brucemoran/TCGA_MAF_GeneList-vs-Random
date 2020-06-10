@@ -31,9 +31,7 @@ names(BOOTSTRAPLIST) <- GENELISTNAMES
 
 ##Pfam annotation
 ##annotation of all transcripts with P(rotein)ID(entifier)
-ANNOFILE <- "EnsDb.Hsapiens.v86.txs.PFAM.db.RData"
-EnsDb.Hsapiens.v86_func(ANNOFILE)
-load(ANNOFILE)
+load("EnsDb.Hsapiens.v86.txs.PFAM.db.RData")
 
 #load("results/TCGA.BRCA.mutect/results/TCGA.BRCA.mutect/TCGA.BRCA.mutect.somatic.tumour.vcf.glVcfGrList.RData")
 grPIDgeneList <- lapply(seq_along(GLVCFGRLIST1), function(g){
@@ -81,15 +79,15 @@ grPIDbootList <- lapply(seq_along(BOOTSTRAPLIST), function(b){
 
     print(paste0("Working on: ", names(BOOTSTRAPLIST)[b]))
     bootList <- lapply(seq_along(BOOTSTRAPLIST[[b]]), function(ff){
-      if(ff==1){
       genesb <- suppressMessages(read_tsv(BOOTSTRAPLIST[[b]][ff])) %>%
                 left_join(., annoGenenameEnsEnt, by=c("Gene_Name" = "external_gene_name")) %>%
                 dplyr::select(ensembl_gene_id) %>%
                 unlist()
-      if(length(genesb) != 0){
-        genesb_txs_pid <- txs_pid %>% plyranges::filter(gene_id %in% genesb)
-        grb_txs_pid <- sqlvl_pid_gr_func(GLVCFGRLIST1$fullVcfGr, genesb_txs_pid) %>%
-                       plyranges::select(-contains("TCGA"), -c("paramRangeID","REF","ALT","QUAL","FILTER","external_gene_name","ensembl_gene_id","entrezgene_id"))
+      genesb_txs_pid <- txs_pid %>% plyranges::filter(gene_id %in% genesb)
+      grb_txs_pid <- sqlvl_pid_gr_func(GLVCFGRLIST1$fullVcfGr, genesb_txs_pid) %>%
+                     plyranges::select(-contains("TCGA"), -c("paramRangeID","REF","ALT","QUAL","FILTER","external_gene_name","ensembl_gene_id","entrezgene_id"))
+
+      if(length(unique(grb_txs_pid$gene_id)) != 0){
 
         ################
         ## per gene ##
@@ -112,7 +110,6 @@ grPIDbootList <- lapply(seq_along(BOOTSTRAPLIST), function(b){
         print(paste0(names(BOOTSTRAPLIST)[b], "_", ff))
         per_gene_domain_func(ggb, names(BOOTSTRAPLIST)[b], b)
       }
-    }
   })
   return(bootList)
 })
