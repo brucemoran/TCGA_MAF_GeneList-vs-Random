@@ -71,9 +71,11 @@ for (x in seq_along(GENELIST)){
   if(length(kbVpgGlList[[x]])!=0){
     oSNV_tb <- left_join(tibble(Gene_Name=names(vpgGl), Total_SNV=vpgGl),
                          tibble(Gene_Name=names(kbVpgGlList[[x]]), SNV_per_KB=kbVpgGlList[[x]]))
-    write_tsv(oSNV_tb, paste0("results/", TCGAID,".", GENELISTNAMES[x], ".txt"))
+    #write_tsv(oSNV_tb, paste0("results/", TCGAID,".", GENELISTNAMES[x], ".txt"))
+    openxlsx::write.xlsx(oSNV_tb, paste0("results/", TCGAID,".", GENELISTNAMES[x], ".xlsx"))
   } else {
-    write_tsv(tibble(Gene_Name=NA, Total_SNV=NA, SNV_per_KB=NA)[-1,], paste0("results/", TCGAID,".", GENELISTNAMES[x], ".txt"))
+    #write_tsv(tibble(Gene_Name=NA, Total_SNV=NA, SNV_per_KB=NA)[-1,], paste0("results/", TCGAID,".", GENELISTNAMES[x], ".txt"))
+    openxlsx::write.xlsx(tibble(Gene_Name=NA, Total_SNV=NA, SNV_per_KB=NA)[-1,], paste0("results/", TCGAID,".", GENELISTNAMES[x], ".xlsx"))
   }
 }
 
@@ -127,8 +129,8 @@ genePVecList <- lapply(seq_along(GENELIST), function(x){
 
     annovpgGl100_out <- annovpgGl100 %>%
                         dplyr::select(Gene_Name = external_gene_name, entrezgene_id)
-    write_tsv(annovpgGl100_out, paste0("bootstraps/", GENELISTNAMES[x], "_", p, ".txt"))
-
+    #write_tsv(annovpgGl100_out, paste0("bootstraps/", GENELISTNAMES[x], "_", p, ".txt"))
+    openxlsx::write.xlsx(annovpgGl100_out, paste0("bootstraps/", GENELISTNAMES[x], "_", p, ".xlsx"))
     vpgGl100 <- vpgGl100[names(vpgGl100) %in% as.vector(annovpgGl100$external_gene_name)]
     kbvpgGl100 <- vpgGl100 / (as.vector(annovpgGl100$length)/1000)
 

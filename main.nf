@@ -176,7 +176,7 @@ results_run
 
 process pack_out {
   label 'low_mem'
-  publishDir "analysis/$tcga/", mode: "copy", pattern: "*.zip"
+  publishDir "analysis/${tcga}/", mode: "copy", pattern: "*.zip"
 
   input:
   tuple val(tcga), file(results), file(bootstraps), file(pdf) from results_pr
@@ -186,25 +186,7 @@ process pack_out {
 
   script:
   """
-  wget -O textToExcelXLSX.pl https://raw.githubusercontent.com/brucemoran/perl/master/XLSX/textToExcelXLSX.pl
-
-  ##write XLSX fro SNV data
-  RESTXT=\$(ls results/*txt)
-  perl ./textToExcelXLSX.pl \
-    \$RESTXT \
-    $tcga".mutect2.genelists"
-
-  ##write genelist data
-  GLTYPE=\$(ls bootstraps | grep -v p_ | grep -v xlsx | \
-    perl -ane 'chomp;@s=split(/\\mutect\\./); \$so=\$s[-1]; \$so=~s/\\_[0-9]*.txt\$//; print "\$so\\n";' | sort | uniq)
-
-  for GL in \$GLTYPE; do
-    GLTYPEALL=\$(ls bootstraps/\$GL*.txt)
-    perl ./textToExcelXLSX.pl \
-      \$GLTYPEALL \
-      $tcga"."\$GL".bootstraps"
-  done
-
-  zip -r $tcga".mutect2.results.zip" *xlsx *padjBH.nm.pdf *.geom_density_ridges.pdf
+  ##write genelist data to zip
+  zip -r ${tcga}".mutect2.results.zip" *xlsx *padjBH.nm.pdf *.geom_density_ridges.pdf
   """
 }
