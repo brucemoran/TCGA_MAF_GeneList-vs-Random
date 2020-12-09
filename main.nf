@@ -154,7 +154,7 @@ process run_Rs {
 
   output:
   file('*') into completed
-  tuple val(tcga), file("results"), file("bootstraps") into results_run
+  tuple val(tcga), file("results"), file("bootstraps"), file("${tcga}.PIDTableList.RData.genelist-vs-bootstraps.geom_density_ridges.pdf") into results_run
 
   script:
   """
